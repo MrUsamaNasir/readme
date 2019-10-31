@@ -1,0 +1,253 @@
+using System.Web;
+
+namespace New.Models
+{
+    public class ProviderNpi
+    {
+        public string NPI { get; set; }
+        public string Name { get; set; }
+        public string Found { get; set; }
+    }
+}
+----
+using New.Models;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using CsvHelper;
+using System.Net;
+using System.Net.Http;
+using System.Web;
+using System.Web.Mvc;
+using System.Windows;
+using System.Drawing;
+using System.Data;
+using System.Text;
+using System.Web.UI.WebControls;
+using System.Web.UI;
+
+namespace New.Controllers
+{
+    public class ProviderNpiController : Controller
+    {
+        static HttpClient _client = new HttpClient();
+        static string _endPoint = "https://npiregistry.cms.hhs.gov/api/?version=2.0&number=";
+        static List<ProviderNpi> _providers = new List<ProviderNpi>();
+        // GET: ProviderNpi
+        public ActionResult Index()
+        {
+            return View(new List<ProviderNpi>());
+        }
+        [HttpPost]
+        public ActionResult Index(HttpPostedFileBase postedFile)
+        {
+            // string filePath = string.Empty;
+            if (postedFile != null)
+            {
+                //filePath = Path.GetFileName(postedFile.FileName);
+                //string extension = Path.GetExtension(postedFile.FileName);
+                using (StreamReader sr = new StreamReader(postedFile.InputStream))
+                {
+                    while (!sr.EndOfStream)
+                    {
+                        string csv = sr.ReadLine();
+                        foreach (string row in csv.Split('\n'))
+                        {
+                            if (!string.IsNullOrEmpty(row))
+                            {
+                                _providers.Add(new ProviderNpi
+                                {
+                                    NPI = row.Split(',')[0],
+                                });
+                            }
+                        }
+                    }
+                }
+                return View(_providers);
+            }
+            else
+            {
+                return View(ViewBag.Exception = "Exception");
+            }
+        }
+        [HttpPost]
+        public JsonResult CheckNpi(string myNpi)
+        {
+            HttpWebRequest request2 = (HttpWebRequest)WebRequest.Create(_endPoint + myNpi.ToString());
+            request2.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            using (HttpWebResponse response = (HttpWebResponse)request2.GetResponse())
+            using (Stream stream = response.GetResponseStream())
+            using (StreamReader reader = new StreamReader(stream))
+            {
+                string read = reader.ReadToEnd();
+                ProviderNpi p = new ProviderNpi();
+                p.NPI = myNpi.ToString();
+
+                dynamic convjson = JsonConvert.DeserializeObject(read);
+                try
+                {
+                    p.Name = convjson["results"][0]["basic"]["name"];
+                    p.Found = "Yes";
+
+                    return Json(p);
+                }
+                catch (Exception ex)
+                {
+                    p.Name = "N/A";
+                    p.Found = "No";
+                    return Json(p);
+                }
+            }
+        }
+
+            //foreach (var provider in _providers)
+            //{
+            //    HttpWebRequest request = (HttpWebRequest)WebRequest.Create(_endPoint + myNpi.ToString());
+            //    request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            //    using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            //    using (Stream stream = response.GetResponseStream())
+            //    using (StreamReader reader = new StreamReader(stream))
+            //    {
+            //        string read = reader.ReadToEnd();
+            //        dynamic convjson = JsonConvert.DeserializeObject(read);
+            //        try
+            //        {
+            //            provider.Name = convjson["results"][0]["basic"]["name"];
+            //            provider.Found = "Yes";
+                      
+            //        }
+            //        catch (Exception ex)
+            //        {
+            //            provider.Name = "N/A";
+            //            provider.Found = "No";
+            //        }
+            //    }
+            //}
+            //return Json(_providers);
+           
+        public void Export()
+        {
+            StringWriter sw = new StringWriter();
+            //String Formatting
+            sw.WriteLine(string.Format("\"NPI\",\"Name\",\"Found\""));
+            foreach (var provider in _providers)
+            {
+                sw.WriteLine(string.Format("\"{0}\",\"{1}\",\"{2}\"",
+                        provider.NPI,
+                        provider.Name,
+                        provider.Found));
+            }
+            Response.Clear();
+            Response.AddHeader("Content-disposition", "attachment;filename=ExportedData.csv");
+            Response.ContentType = "text/csv";
+            Response.Write(sw.ToString());
+            Response.End();
+        }
+    }
+}
+--------------------------------
+
+@model IEnumerable<New.Models.ProviderNpi>
+
+@{
+    ViewBag.Title = "Provider Npi";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+<h2>Npi Details</h2>
+
+
+<body>
+    @using (Html.BeginForm("Index", "ProviderNpi", FormMethod.Post, new { enctype = "multipart/form-data" }))
+    {
+        <input type="file" name="postedFile" />
+        <input type="submit" value="Import" />
+    }
+    <input type="button" id="btn" onclick="Check()" value="CheckNpi" />
+    @if (Model.Count() > 0)
+    {
+        <table id="data" class="table">
+            <tr>
+                <th>
+                    @Html.DisplayNameFor(model => model.NPI)
+                </th>
+                <th>
+                    @Html.DisplayNameFor(model => model.Name)
+                </th>
+                <th>
+                    @Html.DisplayNameFor(model => model.Found)
+                </th>
+                <th></th>
+            </tr>
+
+            @foreach (var item in Model)
+            {
+                <tr>
+                    <td id="npi">@item.NPI</td>
+                    <td id="name"></td>
+                    <td id="found"></td>
+                </tr>
+            }
+        </table>
+
+        <p> @Html.ActionLink("Export", "Export") </p>
+    }
+    else
+    {
+        <p>@ViewBag.Exception</p>
+    }
+</body>
+ <script src="https://code.jquery.com/jquery-3.4.1.js"></script> 
+<script type="text/javascript">
+    function Check() {
+        var myTab = document.getElementById('data');
+        for (var i = 1; i < myTab.rows.length; i++) {
+            var objCells = myTab.rows.item(i).cells; //collecting all cells
+            var myNpi = objCells.item(0).innerHTML; //Taking Npi from column
+
+            $.ajax({
+                url: '/ProviderNpi/CheckNpi',
+                type: "POST",
+                dataType: 'json',
+                data: { "myNpi": String(myNpi) },
+                async: true,
+                success: function (json) {
+                    $.each(json, function (key, value)
+                    {
+
+
+                    })
+
+
+                },
+                error: function () {
+                    alert("Error");
+                }
+            });
+        }
+    }
+
+                /*{
+                    for (var j = 1; j < myTab.rows.length; j++) {
+                        if (document.getElementById("npi").innerHTML != json["NPI"]) {
+                            continue;
+                        }
+                        document.getElementById("name").innerHTML = json["Name"];//json.length
+                        document.getElementById("found").innerHTML = json["Found"];
+                        debugger;
+                    }
+                    
+                },
+                error: function ()
+                {
+                    alert("Error");
+                }
+            });
+
+        }
+    }*/
+
+</script>
+
